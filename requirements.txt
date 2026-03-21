@@ -1,0 +1,13 @@
+# Manipulação de Dados e Engenharia
+pandas>=1.3.0
+numpy>=1.21.0
+
+# Ferramentas Clínicas (PhysioNet)
+wfdb>=4.0.0
+
+# Deep Learning Models (1D CNN)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# MLOps Pipeline Automático
+mlflow>=2.5.0
