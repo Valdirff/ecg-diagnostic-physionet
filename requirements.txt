@@ -8,6 +8,7 @@ wfdb>=4.0.0
 # Deep Learning Models (1D CNN)
 torch>=2.0.0
 torchvision>=0.15.0
+scikit-learn>=1.0.0
 
 # Automated MLOps Pipeline
 mlflow>=2.5.0
