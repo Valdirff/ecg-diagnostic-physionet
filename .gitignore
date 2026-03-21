@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+
+# Data
+# Ignite everything inside data/ but keep the directory shape empty for Git
+data/**/*
+!data/**/.gitkeep
+
+# Outputs and Models
+outputs/**/*
+!outputs/**/.gitkeep
+mlruns/
+*.db
+*.sqlite3
