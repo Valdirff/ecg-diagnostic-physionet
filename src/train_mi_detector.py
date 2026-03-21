@@ -21,7 +21,7 @@ os.environ["GIT_PYTHON_REFRESH"] = "quiet"
 def extract_dataset_from_db(db_path: str):
     conn = sqlite3.connect(db_path)
     query = """
-    SELECT r.filename_lr as path,
+    SELECT r.filename_hr as path,
            MAX(CASE WHEN d.diagnostic_class = 'MI' THEN 1 ELSE 0 END) as target_mi,
            r.strat_fold
     FROM ecg_records r
@@ -101,6 +101,17 @@ def main():
     
     print("Extracting labels from SQL Database...")
     df = extract_dataset_from_db(db_path)
+    
+    # PRO TACTIC: SSD Physical-Sync Tolerance Filter
+    # Ignora silenciosamente arquivos cortados ou não terminados de sincronizar da nuvem
+    print("Verifying physical data availability on SSD (500Hz)...")
+    df['exists'] = df['path'].apply(lambda x: (raw_dir / x).with_suffix('.dat').exists() and (raw_dir / x).with_suffix('.hea').exists())
+    valid_df = df[df['exists']]
+    
+    missing = len(df) - len(valid_df)
+    if missing > 0:
+        print(f"⚠️ IGNORANDO {missing} exames fantasmas (Não baixados pelo Windows/OneDrive).")
+    df = valid_df.drop(columns=['exists'])
     
     train_df = df[df['strat_fold'] <= 8].reset_index(drop=True)
     val_df = df[df['strat_fold'] == 9].reset_index(drop=True)
