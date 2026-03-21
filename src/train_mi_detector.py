@@ -12,15 +12,17 @@ import mlflow.pytorch
 from pathlib import Path
 
 # ==========================================
-# 1. INTEGRAÇÃO SQL (Engenharia de Dados)
+# 1. SQL INTEGRATION (Data Engineering)
 # ==========================================
 def extract_dataset_from_db(db_path: str):
     """
-    Usa SQL Avancado para buscar os caminhos dos arquivos originais
-    e calcular dinamicamente se o paciente teve um Infarto (MI -> Myocardial Infarction).
-    Evitando fazer merges pesados e imperativos no Pandas.
+    Uses Advanced SQL to fetch original file paths
+    and dynamically calculate if the patient had a Myocardial Infarction (MI).
+    Avoiding heavy and imperative Pandas merges.
     """
     conn = sqlite3.connect(db_path)
+    # The SQL command below joins dimension tables to efficiently retrieve 
+    # the target label directly from the medical diagnosis dictionary mappings.
     query = """
     SELECT r.filename_lr as path,
            MAX(CASE WHEN d.diagnostic_class = 'MI' THEN 1 ELSE 0 END) as target_mi,
@@ -36,7 +38,7 @@ def extract_dataset_from_db(db_path: str):
     return df
 
 # ==========================================
-# 2. CARREGAMENTO DOS ONDAS ECG (Processamento de Sinais)
+# 2. ECG WAVE LOADING (Signal Processing)
 # ==========================================
 class ECGDataset(Dataset):
     def __init__(self, df, data_dir):
@@ -48,12 +50,12 @@ class ECGDataset(Dataset):
         return len(self.labels)
         
     def __getitem__(self, idx):
-        # wfdb carrega o sinal binario (Shape original: [1000 amostras, 12 canais])
-        # PyTorch Conv1d espera [12 canais, 1000 amostras], por isso aplicamos .T (Transposta)
+        # wfdb loads the binary signal (Original Shape: [1000 samples, 12 channels])
+        # PyTorch Conv1d expects [12 channels, 1000 samples], so we apply .T (Transpose)
         record_path = str(self.data_dir / self.paths[idx])
         signal, metadata = wfdb.rdsamp(record_path)
         
-        # Normalizando o sinal (Z-score básico)
+        # Signal normalization (Basic Z-score)
         signal = (signal - np.mean(signal)) / (np.std(signal) + 1e-8)
         
         signal_tensor = torch.tensor(signal.T, dtype=torch.float32)
@@ -61,12 +63,12 @@ class ECGDataset(Dataset):
         return signal_tensor, label_tensor
 
 # ==========================================
-# 3. CONSTRUÇÃO DA INTELIGÊNCIA ARTIFICIAL (Deep Learning)
+# 3. ARTIFICIAL INTELLIGENCE BUILD (Deep Learning)
 # ==========================================
 class ECG_CNN(nn.Module):
     def __init__(self):
         super().__init__()
-        # Arquitetura capaz de ler padroes em 12 fios Eletricos de uma so vez
+        # Architecture capable of reading patterns across 12 electrical leads at once
         self.conv_blocks = nn.Sequential(
             nn.Conv1d(in_channels=12, out_channels=32, kernel_size=5, padding=2),
             nn.ReLU(),
@@ -78,7 +80,7 @@ class ECG_CNN(nn.Module):
             
             nn.Conv1d(64, 128, kernel_size=5, padding=2),
             nn.ReLU(),
-            # O AdaptivePool forca que não importe o tamanho final, ele retorne 1 celula por canal
+            # AdaptivePool forces the network to output 1 cell per channel regardless of input length
             nn.AdaptiveAvgPool1d(1) 
         )
         self.classifier = nn.Sequential(
@@ -93,23 +95,23 @@ class ECG_CNN(nn.Module):
         return self.classifier(features)
 
 # ==========================================
-# 4. ORQUESTRAÇÃO MLOps (Treinamento com MLflow)
+# 4. MLOps ORCHESTRATION (MLflow Training)
 # ==========================================
 def main():
     base_dir = Path(__file__).parent.parent
     db_path = base_dir / "data" / "processed" / "ptbxl.db"
     raw_dir = base_dir / "data" / "raw"
     
-    print("Extraindo labels do Banco de Dados SQL...")
+    print("Extracting labels from SQL Database...")
     df = extract_dataset_from_db(db_path)
     
-    # Stratified Split recomendado pelo PhysioNet
+    # Recommended Stratified Split by PhysioNet
     train_df = df[df['strat_fold'] <= 8].reset_index(drop=True)
     val_df = df[df['strat_fold'] == 9].reset_index(drop=True)
     
-    # Para teste do codigo nao travar a internet, vamos pegar so as primeiras 2000 amsotras
-    train_df = train_df.head(2000)
-    val_df = val_df.head(500)
+    # To prevent the code from crashing internet downloads for a quick test, we grab 1000 samples
+    train_df = train_df.head(1000)
+    val_df = val_df.head(200)
     
     train_loader = DataLoader(ECGDataset(train_df, raw_dir), batch_size=64, shuffle=True)
     val_loader = DataLoader(ECGDataset(val_df, raw_dir), batch_size=64, shuffle=False)
@@ -117,21 +119,21 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = ECG_CNN().to(device)
     
-    criterion = nn.BCELoss() # Binary Cross Entropy para Infarto (Sim/Nao)
+    criterion = nn.BCELoss() # Binary Cross Entropy for Infarction (Yes/No)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     
     # -----------------------------------------------------
-    # Inicia o Tracking do MLOps
+    # Start MLOps Tracking
     # -----------------------------------------------------
     mlflow.set_experiment("ECG_Myocardial_Infarction_Detector")
     
     with mlflow.start_run():
         epochs = 3
-        mlflow.log_param("arquitetura", "CNN1D_AdaptiveResnet")
+        mlflow.log_param("architecture", "CNN1D_AdaptiveResnet")
         mlflow.log_param("epochs", epochs)
         mlflow.log_param("learning_rate", 0.001)
         
-        print(f"\nIniciando Treinamento no dispositivo: {device}")
+        print(f"\nStarting Training on device: {device}")
         for epoch in range(epochs):
             model.train()
             train_loss = 0.0
@@ -147,7 +149,7 @@ def main():
                 optimizer.step()
                 train_loss += loss.item()
                 
-            # Validacao
+            # Validation
             model.eval()
             val_loss = 0.0
             correct = 0
@@ -157,7 +159,7 @@ def main():
                     val_preds = model(X_val)
                     val_loss += criterion(val_preds, y_val).item()
                     
-                    # Calcula Acuracia Bruta
+                    # Calculate Raw Accuracy
                     predictions_rounded = val_preds.round()
                     correct += (predictions_rounded == y_val).sum().item()
             
@@ -167,14 +169,14 @@ def main():
             
             print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | Val Acc: {val_accuracy:.4f}")
             
-            # Log metricas no MLflow ao vivo
+            # Log metrics to MLflow live
             mlflow.log_metric("train_loss", avg_train_loss, step=epoch)
             mlflow.log_metric("val_loss", avg_val_loss, step=epoch)
             mlflow.log_metric("val_accuracy", val_accuracy, step=epoch)
             
-        print("\nSalvando Modelo e Metadados no Registry do MLflow...")
+        print("\nSaving Model and Metadata to MLflow Registry...")
         mlflow.pytorch.log_model(model, "ecg_model_artifacts")
-        print("Sucesso! Pipeline End-to-End MLOps validada.")
+        print("Success! MLOps End-to-End Pipeline validated.")
 
 if __name__ == "__main__":
     main()

@@ -1,12 +1,12 @@
 -- schema.sql
--- Normalizacao Robusta (Star Schema) do Dataset PTB-XL de ECG
+-- Robust Normalization (Star Schema) of the PTB-XL ECG Dataset
 
 DROP TABLE IF EXISTS ecg_scp_diagnoses;
 DROP TABLE IF EXISTS ecg_records;
 DROP TABLE IF EXISTS scp_codes;
 DROP TABLE IF EXISTS patients;
 
--- Tabela Dimensoes: Pacientes
+-- Dimension Table: Patients
 CREATE TABLE patients (
     patient_id INTEGER PRIMARY KEY,
     age        INTEGER,
@@ -15,7 +15,7 @@ CREATE TABLE patients (
     weight     REAL
 );
 
--- Tabela Dimensoes: Dicionario de Codigos SCP (Diagnosticos Medicos)
+-- Dimension Table: SCP Codes Dictionary (Medical Diagnoses)
 CREATE TABLE scp_codes (
     scp_code             TEXT PRIMARY KEY,
     description          TEXT,
@@ -26,7 +26,7 @@ CREATE TABLE scp_codes (
     diagnostic_subclass  TEXT
 );
 
--- Tabela Fatos: Os Eletrocardiogramas (Eventos Centrais)
+-- Fact Table: Electrocardiograms (Core Events)
 CREATE TABLE ecg_records (
     ecg_id           INTEGER PRIMARY KEY,
     patient_id       INTEGER,
@@ -41,7 +41,7 @@ CREATE TABLE ecg_records (
     FOREIGN KEY(patient_id) REFERENCES patients(patient_id)
 );
 
--- Tabela Multi-Relacional (N:M): Mapeia qual ECG teve quais Diagnosticos (e sua certeza/probabilidade)
+-- Many-to-Many Relational Table (N:M): Maps which ECG had which Diagnoses (and their likelihood)
 CREATE TABLE ecg_scp_diagnoses (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     ecg_id      INTEGER,
