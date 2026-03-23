@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/banner_12leads.png" width="100%" alt="ECG Myocardial Infarction Detector Banner" />
-</p>
-
 # 🩺 ECG Myocardial Infarction Detector
 > **SQL-Based ECG Data Engineering + 1D CNN Classification + Experiment Tracking**
 
@@ -9,6 +5,10 @@ This repository presents an end-to-end machine learning pipeline for the automat
 The project combines a **relational data engineering layer** built with **SQLite and SQL**, a **1D Convolutional Neural Network** for waveform classification, and **MLflow-based experiment tracking** for training analysis and model evaluation.
 
 Unlike many ECG projects that rely only on flat metadata files, this pipeline organizes diagnostic information into a **queryable relational schema**, making the data preparation process more structured, reproducible, and closer to real-world data science workflows.
+
+<p align="center">
+  <img src="docs/banner_12leads.png" width="100%" alt="ECG Myocardial Infarction Detector Banner" />
+</p>
 
 ---
 
@@ -194,9 +194,5 @@ Main limitations include:
 
 ## Credits
 - **Wagner, P. et al. (2020).** PTB-XL, a large publicly available electrocardiography dataset. *Scientific Data*.
+- **Dataset Notice:** This repository uses the PTB-XL public dataset for research and development purposes. Please refer to PhysioNet and PTB-XL licensing terms for dataset usage details.
 - **Frameworks used:** PyTorch, WFDB, SQLite, scikit-learn, MLflow.
-
----
-
-## License
-This repository uses the PTB-XL public dataset for research and development purposes. Please refer to PhysioNet and PTB-XL licensing terms for dataset usage details.
