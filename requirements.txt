@@ -1,14 +1,20 @@
-# Data Manipulation and Engineering
+# Core Data Handling
 pandas>=1.3.0
-numpy>=1.21.0
+numpy<2.0.0
+sqlite3
 
-# Clinical Tools (PhysioNet)
+# Signal Processing (PTB-XL)
 wfdb>=4.0.0
 
-# Deep Learning Models (1D CNN)
-torch>=2.0.0
-torchvision>=0.15.0
-scikit-learn>=1.0.0
+# Build Deep Learning Models (1D CNN)
+torch>=1.13.0
+torchvision>=0.14.0
+scikit-learn>=1.2.0
 
-# Automated MLOps Pipeline
-mlflow>=2.5.0
+# Automated MLOps & Tracking
+mlflow>=2.10.0
+flask
+flask-cors
+gunicorn
+alembic
+psutil

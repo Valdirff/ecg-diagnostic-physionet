@@ -1,30 +1,26 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Virtual environments
+.venv/
 .env
-.venv
-env/
-venv/
-ENV/
 
-# Jupyter Notebooks
-.ipynb_checkpoints
+# Professional Project Dirs
+data/raw/
+data/processed/ptbxl.db
+data/processed/*.csv
+outputs/models/*.pth
+outputs/logs/*.log
 
-# IDEs
+# MLflow & Tracking
+mlruns/
+mlflow.db
+.mlflow/
+
+# IDE
 .vscode/
 .idea/
 
-# Data
-# Ignite everything inside data/ but keep the directory shape empty for Git
-data/**/*
-!data/**/.gitkeep
-
-# Outputs and Models
-outputs/**/*
-!outputs/**/.gitkeep
-mlruns/
-*.db
-*.sqlite3
+# OS
+Thumbs.db
+.DS_Store
