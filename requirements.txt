@@ -1,20 +1,20 @@
-# Core Data Handling
-pandas>=1.3.0
-numpy<2.0.0
+# --- CORE SCIENTIFIC STACK ---
+numpy
+pandas
+matplotlib
+seaborn
+scikit-learn
+scipy
+
+# --- SIGNAL PROCESSING ---
+wfdb
+
+# --- DEEP LEARNING ---
+torch
+torchvision
+torchaudio
+
+# --- MLOPS ---
+mlflow
 sqlite3
-
-# Signal Processing (PTB-XL)
-wfdb>=4.0.0
-
-# Build Deep Learning Models (1D CNN)
-torch>=1.13.0
-torchvision>=0.14.0
-scikit-learn>=1.2.0
-
-# Automated MLOps & Tracking
-mlflow>=2.10.0
-flask
-flask-cors
-gunicorn
-alembic
-psutil
+pathlib

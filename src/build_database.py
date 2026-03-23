@@ -1,92 +1,122 @@
+"""
+📂 ECG METADATA ETL - SQLITE CONSTRUCTOR V2.0
+- Relational mapping of clinical SCP-metadata.
+- Robust exception handling with summary reporting.
+- Diagnostic class taxonomy generation.
+"""
+import os
 import sqlite3
 import pandas as pd
-import ast
 from pathlib import Path
+import ast
+import logging
 
-def main():
-    # Absolute paths
-    base_dir = Path(__file__).parent.parent
-    raw_dir = base_dir / "data" / "raw"
-    processed_dir = base_dir / "data" / "processed"
-    db_path = processed_dir / "ptbxl.db"
-    schema_path = base_dir / "sql" / "schema.sql"
+# --- CONFIGURATION ---
+DATA_ROOT = Path("data/raw")
+DB_OUT = Path("data/processed/ptbxl.db")
+METADATA_FILE = DATA_ROOT / "ptbxl_database.csv"
+SCP_STATEMENTS_FILE = DATA_ROOT / "scp_statements.csv"
+
+def print_banner(msg):
+    print(f"\n{'='*50}\n{msg}\n{'='*50}")
+
+def build_relational_engine():
+    print_banner("🚀 INICIALIZANDO ETL: PTB-XL TO SQLITE")
     
-    print("\n[1/4] Initializing SQL Database...")
-    # Create the connection and empty database
-    conn = sqlite3.connect(db_path)
+    if not METADATA_FILE.exists() or not SCP_STATEMENTS_FILE.exists():
+        print(f"❌ ERRO: Arquivos de metadados não encontrados em {DATA_ROOT}!")
+        return
+
+    # Load Source Tables
+    df = pd.read_csv(METADATA_FILE, index_col='ecg_id')
+    print(f"✅ Arquivo de ECGs carregado: {len(df)} registros.")
+    
+    scp_df = pd.read_csv(SCP_STATEMENTS_FILE, index_col=0)
+    print(f"✅ Tabela de diagnósticos SCP carregada: {len(scp_df)} códigos diagnósticos.")
+
+    # Create DB and Schema
+    os.makedirs(DB_OUT.parent, exist_ok=True)
+    conn = sqlite3.connect(DB_OUT)
     cur = conn.cursor()
-    
-    # Apply SQL schema
-    with open(schema_path, "r", encoding="utf-8") as f:
-        cur.executescript(f.read())
+
+    cur.executescript("""
+        DROP TABLE IF EXISTS ecg_records;
+        DROP TABLE IF EXISTS scp_codes;
+        DROP TABLE IF EXISTS ecg_scp_diagnoses;
         
-    print("V Tables created from schema.sql!")
+        CREATE TABLE ecg_records (
+            ecg_id INTEGER PRIMARY KEY,
+            patient_id INTEGER,
+            age REAL,
+            sex INTEGER,
+            height REAL,
+            weight REAL,
+            filename_lr TEXT,
+            filename_hr TEXT,
+            strat_fold INTEGER
+        );
+        
+        CREATE TABLE scp_codes (
+            scp_code TEXT PRIMARY KEY,
+            description TEXT,
+            diagnostic_class TEXT
+        );
+        
+        CREATE TABLE ecg_scp_diagnoses (
+            ecg_id INTEGER,
+            scp_code TEXT,
+            probability REAL,
+            FOREIGN KEY(ecg_id) REFERENCES ecg_records(ecg_id),
+            FOREIGN KEY(scp_code) REFERENCES scp_codes(scp_code)
+        );
+    """)
+    conn.commit()
 
-    # -----------------------------------------------------
-    print("\n[2/4] Extracting and Cleaning Diagnoses Table (SCP)...")
-    # The original codes dataset has the acronym in the Index (Under Unnamed: 0)
-    scp_df = pd.read_csv(raw_dir / "scp_statements.csv", index_col=0)
-    scp_df.index.name = "scp_code"
-    scp_df = scp_df.reset_index()
+    # --- 1. INSERT SCP CODES ---
+    print("🛠️ Mapeando Classificação SCP...")
+    scp_count = 0
+    for code, row in scp_df.iterrows():
+        cur.execute("INSERT INTO scp_codes VALUES (?, ?, ?)", 
+                    (code, row['description'], row['diagnostic_class']))
+        scp_count += 1
     
-    # Standardize messy column names:
-    scp_df = scp_df.rename(columns={
-        "diagnostic": "is_diagnostic", 
-        "form": "is_form", 
-        "rhythm": "is_rhythm"
-    })
-    
-    # Keep only columns projected in the SQL schema
-    cols_to_keep = ["scp_code", "description", "is_diagnostic", "is_form", "is_rhythm", "diagnostic_class", "diagnostic_subclass"]
-    scp_df = scp_df[cols_to_keep]
-    
-    scp_df.to_sql("scp_codes", conn, if_exists="append", index=False)
-    print(f"V Inserted {len(scp_df)} medical SCP dictionaries into the dimension table!")
+    # --- 2. INSERT ECG RECORDS AND DIAGNOSES ---
+    print("🛠️ Processando Registros de ECG e Diagnósticos (Relacional)...")
+    ecg_success = 0
+    ecg_error = 0
+    diag_count = 0
 
-    # -----------------------------------------------------
-    print("\n[3/4] Extracting and Cleaning Patient and ECG Data...")
-    df = pd.read_csv(raw_dir / "ptbxl_database.csv", index_col='ecg_id')
-    df = df.reset_index() # ecg_id becomes a normal column
-    
-    # Isolate the Patients table and remove old duplicates 
-    # (one patient may have taken 10 exams on different dates)
-    patients = df[['patient_id', 'age', 'sex', 'height', 'weight']].copy()
-    patients = patients.sort_values(by="patient_id").drop_duplicates(subset="patient_id", keep="last")
-    patients.to_sql("patients", conn, if_exists="append", index=False)
-    print(f"V Inserted {len(patients)} Unique Patients into the base table!")
-    
-    # Isolate the main Fact Exams table
-    records = df[['ecg_id', 'patient_id', 'recording_date', 'report', 
-                  'nurse', 'site', 'device', 'filename_lr', 'filename_hr', 'strat_fold']].copy()
-    records.to_sql("ecg_records", conn, if_exists="append", index=False)
-    print(f"V Inserted {len(records)} Electrocardiogram Records into the fact table!")
-    
-    # -----------------------------------------------------
-    print("\n[4/4] Developing N:M Relationship (Patients vs Multiple Diagnoses)...")
-    # The original base packages all diagnoses inside an ugly dictionary in the `scp_codes` column
-    # Ex: {'NORM': 100.0, 'LMI': 0, 'IMI': 35.0} -> Let's unwrap this!
-    diagnoses_records = []
-    
-    for _, row in df.iterrows():
-        ecg_id = row['ecg_id']
+    for ecg_id, row in df.iterrows():
         try:
-            # Transform the String into a Real Python Dictionary
-            dict_codes = ast.literal_eval(row['scp_codes'])
-            for code, likelihood in dict_codes.items():
-                diagnoses_records.append((ecg_id, code, float(likelihood)))
-        except (ValueError, SyntaxError) as e:
-            continue
+            # 2a. Insert Main Record
+            cur.execute("""
+                INSERT INTO ecg_records VALUES (?,?,?,?,?,?,?,?,?)
+            """, (ecg_id, row['patient_id'], row['age'], row['sex'], row['height'], row['weight'], 
+                  row['filename_lr'], row['filename_hr'], row['strat_fold']))
             
-    diagnoses_df = pd.DataFrame(diagnoses_records, columns=['ecg_id', 'scp_code', 'likelihood'])
-    diagnoses_df.to_sql("ecg_scp_diagnoses", conn, if_exists="append", index=False)
-    print(f"V Relational table ECG_SCP_DIAGNOSES filled with {len(diagnoses_df)} M:N associations!")
-    
+            # 2b. Parse and Insert Clinical Diagnoses (M-N relationship)
+            scp_diags = ast.literal_eval(row['scp_codes'])
+            for code, prob in scp_diags.items():
+                cur.execute("INSERT INTO ecg_scp_diagnoses VALUES (?, ?, ?)", 
+                            (ecg_id, code, prob))
+                diag_count += 1
+            
+            ecg_success += 1
+        except Exception as e:
+            ecg_error += 1
+            logging.error(f"⚠️ Erro ao inserir ECG {ecg_id}: {e}")
+
     conn.commit()
     conn.close()
-    
-    print("\n=============================================")
-    print("🚀 SUCCESS! SQL Database built at 'data/processed/ptbxl.db'")
-    print("=============================================\n")
+
+    # --- SUMMARY REPORT ---
+    print_banner("✅ ETL CONCLUÍDO COM SUCESSO")
+    print(f"✔️ Registros de ECG inseridos:       {ecg_success}")
+    print(f"❌ Registros falhos (Ignorados):     {ecg_error}")
+    print(f"✔️ Diagnósticos Mapeados:           {diag_count}")
+    print(f"✔️ Categorias SCP Indexadas:        {scp_count}")
+    print(f"📂 Banco gerado em:                {DB_OUT}")
+    print("="*50)
 
 if __name__ == "__main__":
-    main()
+    build_relational_engine()

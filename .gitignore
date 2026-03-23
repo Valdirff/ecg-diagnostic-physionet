@@ -1,26 +1,33 @@
-# Python
+# --- PYTORCH & CORE ---
+*.pth
+*.pt
 __pycache__/
 *.py[cod]
 *$py.class
-.venv/
-.env
+.ipynb_checkpoints/
 
-# Professional Project Dirs
-data/raw/
+# --- DATA & DATABASE ---
+data/raw/*
+!data/raw/.gitkeep
 data/processed/ptbxl.db
-data/processed/*.csv
-outputs/models/*.pth
-outputs/logs/*.log
 
-# MLflow & Tracking
+# --- MLOPS & TRACKING ---
 mlruns/
-mlflow.db
-.mlflow/
+outputs/logs/*
+outputs/models/*
+!outputs/logs/.gitkeep
+!outputs/models/.gitkeep
 
-# IDE
+# --- OS & IDE ---
 .vscode/
 .idea/
-
-# OS
-Thumbs.db
 .DS_Store
+*.swp
+*.bak
+
+# --- ENVIRONMENT ---
+.venv/
+env/
+venv/
+venv.bak/
+.env
