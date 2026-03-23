@@ -1,87 +1,61 @@
-# ECG Myocardial Infarction Detector (MLOps)
+<p align="center">
+  <img src="docs/banner.png" width="100%" alt="ECG MLOps Banner" />
+</p>
 
-Deep Learning pipeline for automated detection of Myocardial Infarction (MI) from 12-lead ECG signals, integrating a SQL-based data engineering layer with a high-performance 1D Convolutional Neural Network (CNN) and full experiment tracking via MLflow.
+# 🩺 ECG Myocardial Infarction Detector (MLOps)
+> **Relational Data Engineering + Distributed Deep Learning + Enterprise Experiment Tracking**
 
-The dataset is derived from the **PTB-XL** clinical database, where raw voltage signals are mapped to diagnostic metadata stored in a relational SQLite structure. This project demonstrates a production-ready MLOps workflow: from raw signal extraction via SQL queries to model registry and deployment-ready artifacts.
-
----
-
-## Background
-
-Myocardial Infarction (MI) is a critical cardiovascular event where rapid and accurate ECG interpretation can be life-saving. While the PTB-XL dataset provides a rich ground truth, most implementations either ignore the complex relational metadata (SCP-codes) or fail to provide a scalable MLOps infrastructure.
-
-This project was built to bridge that gap. We implement a **Stratified 10-Fold cross-validation strategy** (using folds 1-8 for training, 9 for validation, and 10 for independent testing) to ensure clinical generalizability. The core objective: automate the binary classification of MI with high sensitivity, as missing a positive case (False Negative) is the highest risk in clinical settings.
+This repository implements a high-performance **1D-CNN pipeline** designed for the automated detection of **Myocardial Infarction (MI)** from 12-lead ECG signals. Unlike standard notebooks, this project features a specialized **SQL-based Data Engineering layer**, converting clinical SCP-metadata into a queryable structure for complex diagnostic filtering.
 
 ---
 
-## Project Structure
+## 🔬 Background: Clinical Sensitivity vs. Specicity
+
+In acute cardiac care, the cost of a **False Negative** (missing an infarction) far outweighs the cost of a **False Positive** (over-diagnosis). This model is intentionally tuned for **Screening-Oriented Sensitivity**, accepting a higher false-positive rate to ensure that 87% of real MI cases are captured by the automated system. 
+
+The methodology uses the **PTB-XL database**, implementing a **Stratified 10-Fold split** to ensure that diagnostic patterns are learned from diverse patient populations, not just memorized from specific hospital batches.
+
+---
+
+## 🏗️ Architecture & Pipeline
+
+The pipeline follows an industry-standard MLOps lifecycle:
 
 ```text
-Project_SQL_MLOps_ECG/
-│
-├── README.md                           # Project Documentation
-├── .gitignore                          # Excludes raw data/models
-├── requirements.txt                    # Production dependencies
-│
-├── data/                               # Clinical Data (Local only)
-│   ├── raw/                            # .dat / .hea PhysioNet files
-│   └── processed/                      # ptbxl.db (SQLite Metadata)
-│
-├── sql/
-│   └── schema.sql                      # DDL for the clinical database
-│
-├── src/
-│   ├── build_database.py              # ETL: CSV/Records to SQLite
-│   └── train_mi_detector.py           # Main DL & MLOps Pipeline
-│
-├── outputs/                            # Generated at runtime
-│   ├── models/                         # Local .pth checkpoints
-│   └── logs/                           # Training telemetry
-│
-├── notebooks/                          # Exploratory Signal Analysis
-└── mlruns/                             # MLflow Tracking UI data
+SIGNAL INGESTION        DATA ENGINEERING        DL ARCHITECTURE         MLOPS REGISTRY
+PhysioNet / PTB-XL  ──▶  SQLite Metadata  ──▶  4-Block 1D-CNN  ──▶  MLflow Registry 
+(Raw .dat Files)      (SQL Diagnostic Map)    (Filter: 32 → 256)      (Best .pth)
 ```
+
+1.  **Banner/Signal:** Capturing raw 12-lead waveforms at 500Hz.
+2.  **ETL Layer:** `src/build_database.py` maps complex SCP-codes (MI, NORM, STTC) to relational tables.
+3.  **Neural Engine:** A 4-stage convolutional hierarchy designed to extract temporal rhythms and morphological ischaemic signatures (ST-segment elevation).
+4.  **Tracking:** Every experiment logs learning rate, weight decay, and dropout to **MLflow**, ensuring full reproducibility.
 
 ---
 
-## Pipeline
+## 📊 Results Summary (Test Set)
 
-```text
-PTB-XL Raw Records (.dat) + Metadata (.csv)
-    │
-    ▼  src/build_database.py (ETL)
-SQLite Database (ptbxl.db)
-    │
-    ▼  SQL Extraction (MI Diagnostic Mapping)
-12-Lead Normalized Signal Tensors
-    │
-    ▼  src/train_mi_detector.py (1D-CNN)
-─────────────────────────────────────────────────────────
-MLflow Tracking Registry (Params, Metrics, Artifacts)
-    │
-    ▼  Best Model Checkpoint (.pth)
-Clinical Evaluation (AUROC, Sensitivity, Specificity)
-```
+The model was evaluated on **Fold 10** (2,158 unseen clinical exams).
 
----
+### Performance Metrics
+| Metric | Value | Interpretation |
+|---|---|---|
+| **AUROC** | **0.9242** | Strong separation capacity. |
+| **Recall (Sensitivity)** | **86.91%** | 8.7 out of 10 infarction cases correctly flagged. |
+| **Specificity** | **80.35%** | Reliable identification of non-MI patients. |
+| **Accuracy** | **82.02%** | Overall correct classification rate. |
+| **F1-Score** | **71.13%** | Balanced performance on imbalanced cardiac data. |
 
-## Results Summary
+### Clinical Comparison: MI vs. Normal
+<p align="center">
+  <img src="docs/ecg_comparison.png" width="80%" alt="Clinical ECG Comparison" />
+</p>
+<p align="center">
+  <em>Visual representation of ST-segment elevation (STEMI) — the primary morphological feature the 1D-CNN filters are optimized to detect.</em>
+</p>
 
-### Performance Metrics (Held-out Test Set)
-
-The model was evaluated on Fold 10 (2,158 unseen exams) after triggering **Early Stopping** at Epoch 31:
-
-| Metric | Value |
-|---|---|
-| **AUROC** | **0.9242** |
-| **Sensitivity (Recall)** | **86.91%** |
-| **Specificity** | **80.35%** |
-| **Accuracy** | **82.02%** |
-| **F1-Score** | **71.13%** |
-
-→ **High Clinical Sensitivity:** The model successfully identified 478 out of 550 real MI cases, crucial for screening applications.
-
-### Confusion Matrix (Test Set)
+### Confusion Matrix
 | | Predicted Normal | Predicted MI |
 |---|---|---|
 | **Actual Normal** | 1292 (TN) | 316 (FP) |
@@ -89,42 +63,54 @@ The model was evaluated on Fold 10 (2,158 unseen exams) after triggering **Early
 
 ---
 
-## Key Design Choices (and Why)
+## 🛠️ How to Reproduce
 
-**Why SQL for metadata?**
-In a real hospital environment, ECG metadata isn't in a CSV; it's in a relational database. By using SQLite, we simulate a production data engineering layer, allowing for complex diagnostic filtering (e.g., isolating MI via SCP-code mappings) directly during the data loading phase.
+### 1. Requirements & Hardware
+*   **OS:** Linux / Windows.
+*   **GPU:** Recommended (GTX 1650 / RTX Series).
+*   **Python:** 3.10+ (Lower versions may conflict with NumPy 2.0).
 
-**Why 4-Block 1D-CNN?**
-ECG signals are temporal. The progressive filter increase (32→64→128→256) allows the network to capture low-level rhythmic features in early layers and complex morphological signatures of ischemia (like ST-segment elevation) in deeper layers.
+### 2. Setup
+```bash
+# Clone and environment
+git clone <repo_url>
+python -m venv .venv
+source .venv/bin/activate
 
-**Why BCEWithLogitsLoss with Positional Weighting?**
-MI cases are the minority in the dataset. We calculate a dynamic `pos_weight` during training to penalize false negatives more heavily, forcing the model to prioritize sensitivity over simple accuracy.
+# Install dependencies
+pip install -r requirements.txt
+```
 
-**Why MLflow Integration?**
-Instead of manually tracking hyperparameters, MLflow logs the architecture, learning rate, and batch size automatically. This ensures full reproducibility and allows us to promote the "Best Model" to a production registry with a single click.
+### 3. Data Ingestion
+1.  Download the **PTB-XL** dataset from [PhysioNet](https://physionet.org/content/ptb-xl/1.0.3/).
+2.  Place all `.dat`, `.hea` and `ptbxl_database.csv` in `data/raw/`.
+3.  Run the ETL pipeline to create the relational database:
+    ```bash
+    python src/build_database.py
+    ```
+
+### 4. Training & Monitoring
+```bash
+# Start Training
+python src/train_mi_detector.py
+
+# Launch MLOps UI in another terminal
+mlflow ui
+```
+*   **Checkpoints:** The best model is saved at `outputs/models/best_mi_detector.pth`.
+*   **Logs:** Metrics are stored in the local `mlruns/` directory for visual comparison.
 
 ---
 
-## How to Reproduce
+## 🔑 Key Differentials (Why this repo?)
 
-1. **Setup Environment**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. **Prepare Data**:
-   Ensure PTB-XL records are in `data/raw/` and run the ETL script:
-   ```bash
-   python src/build_database.py
-   ```
-3. **Run Pipeline**:
-   ```bash
-   python src/train_mi_detector.py
-   ```
+*   **Relational Meta-Data:** We don't just load CSVs; we use SQL filtering for robust diagnostic classification.
+*   **Clinical Fault Tolerance:** Implements skipping of un-synced/corrupted files (common in OneDrive/Dropbox environments).
+*   **Class Weighting:** Uses dynamic `BCEWithLogitsLoss` weights to handle the prevalence of normal ECGs over infarction cases.
 
 ---
 
-## Academic References
-
-- **Wagner, P. et al. (2020).** PTB-XL, a large publicly available electrocardiography dataset. *Scientific Data*.
-- **Kiranyaz, S. et al. (2019).** Real-time Patient-specific ECG Classification via 1D Convolutional Neural Networks. *IEEE Transactions on Biomedical Engineering*.
-- **MLflow Documentation:** https://mlflow.org/docs/latest/index.html
+## 📜 References
+- **Wagner, P. (2020).** PTB-XL, a large publicly available electrocardiography dataset. *Scientific Data*.
+- **Kiranyaz, S. (2019).** Real-time Patient-specific ECG Classification via 1D Convolutional Neural Networks.
+- **MLflow Tracking:** https://mlflow.org/

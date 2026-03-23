@@ -1,34 +1,46 @@
+"""
+Project: ECG Myocardial Infarction Detector (MLOps)
+Description: 1D-CNN for MI Detection from 12-lead ECG signals with SQL & MLflow.
+Author: Valdir (Research Engine Style)
+"""
+
 import os
 import copy
 import sqlite3
-import pandas as pd
-import numpy as np
-import wfdb
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+import numpy as np
+import pandas as pd
+import wfdb
 import mlflow
 import mlflow.pytorch
 from pathlib import Path
-from sklearn.metrics import (roc_auc_score, f1_score, precision_score,recall_score, confusion_matrix)
+from torch import nn, optim
+from torch.utils.data import Dataset, DataLoader
+from sklearn.metrics import (roc_auc_score, f1_score, precision_score, 
+                             recall_score, confusion_matrix)
 
-# Silence harmless MLflow Git warnings on Windows
+# ==============================================================================
+# CONFIGURATION & HYPERPARAMETERS
+# ==============================================================================
+EPOCHS       = 50
+BATCH_SIZE   = 128
+LR           = 1e-3
+ES_PATIENCE  = 7
+THRESHOLD    = 0.5
+DEV_MODE     = False  # Set to True for fast debugging with fewer samples
 os.environ["GIT_PYTHON_REFRESH"] = "quiet"
 
-# ==========================================
-# CONFIGURATION
-# ==========================================
-EPOCHS       = 50      # Train longer — early stopping will cut when optimal
-BATCH_SIZE   = 128
-LR           = 0.001
-ES_PATIENCE  = 7       # Early Stopping: stop after 7 epochs without improvement
-THRESHOLD    = 0.5     # Decision threshold for binary metrics
-
-# ==========================================
-# 1. SQL INTEGRATION (Data Engineering)
-# ==========================================
-def extract_dataset_from_db(db_path: str):
+# ==============================================================================
+# 1. SQL DATA ENGINEERING LAYER
+# ==============================================================================
+def extract_dataset_from_db(db_path: str) -> pd.DataFrame:
+    """
+    Extracts high-quality ECG metadata from SQLite.
+    Maps diagnostic SCP-codes to a binary MI target (1=Infarction, 0=Normal).
+    """
+    if not os.path.exists(db_path):
+        raise FileNotFoundError(f"Database not found at: {db_path}. Please run build_database.py first.")
+        
     conn = sqlite3.connect(db_path)
     query = """
     SELECT r.filename_hr as path,
@@ -44,65 +56,78 @@ def extract_dataset_from_db(db_path: str):
     conn.close()
     return df
 
-# ==========================================
-# 2. ECG WAVE LOADING (Signal Processing)
-# ==========================================
-class ECGDataset(Dataset):
-    def __init__(self, df, data_dir):
-        self.paths  = df['path'].values
-        self.labels = df['target_mi'].values
-        self.data_dir = Path(data_dir)
+# ==============================================================================
+# 2. SIGNAL PROCESSING & DATASET
+# ==============================================================================
+class PTBXL_ECGDataset(Dataset):
+    """
+    Handles loading of 12-lead .dat files with per-lead normalization.
+    Implements error tolerance for cloud-synced files (OneDrive).
+    """
+    def __init__(self, df: pd.DataFrame, data_dir: Path):
+        self.paths    = df['path'].values
+        self.labels   = df['target_mi'].values
+        self.data_dir = data_dir
 
     def __len__(self):
         return len(self.labels)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         while True:
             record_path = (self.data_dir / self.paths[idx]).as_posix()
             try:
+                # Load signal (typically 12 channels x 1000 samples)
                 signal, _ = wfdb.rdsamp(record_path)
                 break
-            except OSError:
-                # MLOps Fault Tolerance: skip truncated / un-synced OneDrive files
+            except (OSError, Exception):
+                # Fault Tolerance: Skip truncated/corrupted files
                 idx = (idx + 1) % len(self.labels)
 
-        # Safe per-lead normalization
+        # Standard Z-Score normalization per lead
         signal = (signal - np.mean(signal, axis=0)) / (np.std(signal, axis=0) + 1e-8)
-        signal_tensor = torch.tensor(signal.T, dtype=torch.float32)   # (12, T)
+        
+        # Pytorch expected: (Channels, Sequence_Length)
+        signal_tensor = torch.tensor(signal.T, dtype=torch.float32)
         label_tensor  = torch.tensor([self.labels[idx]], dtype=torch.float32)
+        
         return signal_tensor, label_tensor
 
-# ==========================================
-# 3. DEEP LEARNING ARCHITECTURE
-# ==========================================
+# ==============================================================================
+# 3. DEEP LEARNING ARCHITECTURE (1D-CNN)
+# ==============================================================================
 class ECG_CNN(nn.Module):
+    """
+    Progressive 1D-CNN Architecture inspired by medical signal hierarchies.
+    Filters: 32 -> 64 -> 128 -> 256.
+    """
     def __init__(self):
         super().__init__()
         self.conv_blocks = nn.Sequential(
-            # Block 1
+            # Block 1 - Early temporal features
             nn.Conv1d(12, 32, kernel_size=7, padding=3),
             nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.MaxPool1d(2),
 
-            # Block 2
+            # Block 2 - Waveform morphology
             nn.Conv1d(32, 64, kernel_size=5, padding=2),
             nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.MaxPool1d(2),
 
-            # Block 3
+            # Block 3 - Complex arrhythmic signatures
             nn.Conv1d(64, 128, kernel_size=5, padding=2),
             nn.BatchNorm1d(128),
             nn.ReLU(),
             nn.MaxPool1d(2),
 
-            # Block 4 — deeper feature extraction
+            # Block 4 - Deep feature abstraction
             nn.Conv1d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.AdaptiveAvgPool1d(1)
         )
+        
         self.classifier = nn.Sequential(
             nn.Linear(256, 128),
             nn.BatchNorm1d(128),
@@ -112,19 +137,19 @@ class ECG_CNN(nn.Module):
             nn.ReLU(),
             nn.Dropout(0.3),
             nn.Linear(64, 1)
-            # No sigmoid — BCEWithLogitsLoss handles it numerically
         )
 
     def forward(self, x):
         features = self.conv_blocks(x).squeeze(-1)
         return self.classifier(features)
 
-# ==========================================
-# 4. EVALUATION HELPER
-# ==========================================
+# ==============================================================================
+# 4. TRAINING & EVALUATION LOGIC
+# ==============================================================================
 def evaluate(model, loader, criterion, device):
     model.eval()
     total_loss, all_preds, all_targets = 0.0, [], []
+    
     with torch.no_grad():
         for X, y in loader:
             X, y = X.to(device), y.to(device)
@@ -133,166 +158,97 @@ def evaluate(model, loader, criterion, device):
             probs = torch.sigmoid(out).cpu().numpy()
             all_preds.extend(probs)
             all_targets.extend(y.cpu().numpy())
+            
     avg_loss = total_loss / len(loader)
     auc      = roc_auc_score(all_targets, all_preds)
     return avg_loss, auc, np.array(all_preds), np.array(all_targets)
 
-# ==========================================
-# 5. MLOps ORCHESTRATION
-# ==========================================
 def main():
+    # Paths setup
     base_dir = Path(__file__).parent.parent
     db_path  = base_dir / "data" / "processed" / "ptbxl.db"
     raw_dir  = base_dir / "data" / "raw"
     model_save_path = base_dir / "outputs" / "models" / "best_mi_detector.pth"
     os.makedirs(model_save_path.parent, exist_ok=True)
 
-    print("Extracting labels from SQL Database...")
+    print("--- [ ECG MLOps Pipeline: MI Detection ] ---")
     df = extract_dataset_from_db(db_path)
 
-    # Stratified 3-way split: train (folds 1-8) | val (fold 9) | test (fold 10)
+    # Stratified split: Train (1-8), Val (9), Test (10)
     train_df = df[df['strat_fold'] <= 8].reset_index(drop=True)
     val_df   = df[df['strat_fold'] == 9].reset_index(drop=True)
     test_df  = df[df['strat_fold'] == 10].reset_index(drop=True)
 
-    print(f"Train: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)} exams")
+    print(f"Dataset Split -> Train: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)}")
 
-    train_loader = DataLoader(ECGDataset(train_df, raw_dir), batch_size=BATCH_SIZE, shuffle=True,  num_workers=0)
-    val_loader   = DataLoader(ECGDataset(val_df,   raw_dir), batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
-    test_loader  = DataLoader(ECGDataset(test_df,  raw_dir), batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
+    # Loaders
+    train_loader = DataLoader(PTBXL_ECGDataset(train_df, raw_dir), batch_size=BATCH_SIZE, shuffle=True)
+    val_loader   = DataLoader(PTBXL_ECGDataset(val_df,   raw_dir), batch_size=BATCH_SIZE, shuffle=False)
+    test_loader  = DataLoader(PTBXL_ECGDataset(test_df,  raw_dir), batch_size=BATCH_SIZE, shuffle=False)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Starting Training on device: {device}\n")
+    print(f"Computation Device: {device.type.upper()}\n")
 
     model = ECG_CNN().to(device)
-
-    # ── Check for existing checkpoint ──────────────────────────────────
+    
+    # Checkpoint recovery
     if model_save_path.exists():
-        print(f"Loading existing best weights from {model_save_path}...")
+        print(f"Restoring weights from {model_save_path}...")
         model.load_state_dict(torch.load(model_save_path, map_location=device))
-        print("Model restored. Starting/Continuing training...")
 
-    # Class imbalance weighting (MI is minority)
-    num_pos    = train_df['target_mi'].sum()
-    num_neg    = len(train_df) - num_pos
-    pos_weight = torch.tensor([num_neg / num_pos], dtype=torch.float32).to(device)
-
+    # Loss with dynamic class weighting
+    num_pos = train_df['target_mi'].sum()
+    pos_weight = torch.tensor([(len(train_df)-num_pos)/num_pos]).to(device)
+    
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     optimizer = optim.Adam(model.parameters(), lr=LR, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS)
 
-    # Cosine Annealing: smooth LR decay over full training budget
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
-
-    mlflow.set_experiment("ECG_Myocardial_Infarction_Detector")
-
+    # MLflow Tracking
+    mlflow.set_experiment("ECG_MI_Detector_V1")
     with mlflow.start_run():
-        mlflow.log_params({
-            "architecture": "CNN1D_4Block_BN_Dropout",
-            "epochs_max":   EPOCHS,
-            "early_stopping_patience": ES_PATIENCE,
-            "learning_rate": LR,
-            "scheduler": "CosineAnnealingLR",
-            "pos_weight": round(pos_weight.item(), 3),
-            "batch_size": BATCH_SIZE,
-            "train_size": len(train_df),
-            "val_size":   len(val_df),
-            "test_size":  len(test_df),
-        })
-
-        # ── Early Stopping state ──────────────────────────────────────────
-        best_auc        = 0.0
-        best_weights    = None
-        patience_counter = 0
-        best_epoch      = 0
+        mlflow.log_params({"architecture": "1D-CNN-4Block", "batch_size": BATCH_SIZE, "lr": LR})
+        
+        best_auc = 0.0
+        patience = 0
 
         for epoch in range(EPOCHS):
-            # Training pass
             model.train()
             train_loss = 0.0
-            for X_batch, y_batch in train_loader:
-                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+            for X_b, y_b in train_loader:
+                X_b, y_b = X_b.to(device), y_b.to(device)
                 optimizer.zero_grad()
-                loss = criterion(model(X_batch), y_batch)
+                loss = criterion(model(X_b), y_b)
                 loss.backward()
                 optimizer.step()
                 train_loss += loss.item()
 
-            avg_train_loss = train_loss / len(train_loader)
-
-            # Validation pass
             avg_val_loss, val_auc, _, _ = evaluate(model, val_loader, criterion, device)
             scheduler.step()
-            current_lr = optimizer.param_groups[0]['lr']
+            
+            print(f"Epoch {epoch+1:02d} | Train Loss: {train_loss/len(train_loader):.4f} | Val AUROC: {val_auc:.4f}")
 
-            print(
-                f"Epoch {epoch+1:02d}/{EPOCHS} | "
-                f"Train Loss: {avg_train_loss:.4f} | "
-                f"Val Loss: {avg_val_loss:.4f} | "
-                f"Val AUROC: {val_auc:.4f} | "
-                f"LR: {current_lr:.2e}"
-            )
-
-            mlflow.log_metrics({
-                "train_loss": avg_train_loss,
-                "val_loss":   avg_val_loss,
-                "val_auc":    val_auc,
-                "lr":         current_lr,
-            }, step=epoch)
-
-            # ── Checkpoint best model ─────────────────────────────────────
+            # Best Model Persistence
             if val_auc > best_auc:
-                best_auc      = val_auc
-                best_weights  = copy.deepcopy(model.state_dict())
-                torch.save(best_weights, model_save_path) # SALVAMENTO FÍSICO
-                best_epoch    = epoch + 1
-                patience_counter = 0
-                print(f"  ✔ New best AUROC: {best_auc:.4f} — model saved to disk.")
+                best_auc = val_auc
+                torch.save(model.state_dict(), model_save_path)
+                patience = 0
             else:
-                patience_counter += 1
-                print(f"  ✗ No improvement ({patience_counter}/{ES_PATIENCE})")
-                if patience_counter >= ES_PATIENCE:
-                    print(f"\n⏹  Early Stopping triggered at epoch {epoch+1}.")
+                patience += 1
+                if patience >= ES_PATIENCE:
+                    print("Early Stopping Triggered.")
                     break
 
-        # ── Restore best weights ──────────────────────────────────────────
-        model.load_state_dict(best_weights)
-        print(f"\n✅ Best model restored from epoch {best_epoch} (Val AUROC: {best_auc:.4f})")
-
-        # ── Final evaluation on held-out TEST set ─────────────────────────
-        print("\n── Test Set Evaluation ──────────────────────────────────────")
-        _, test_auc, test_probs, test_targets = evaluate(model, test_loader, criterion, device)
-        test_preds = (test_probs >= THRESHOLD).astype(int)
-
-        precision = precision_score(test_targets, test_preds, zero_division=0)
-        recall    = recall_score(test_targets, test_preds, zero_division=0)   # = Sensitivity
-        f1        = f1_score(test_targets, test_preds, zero_division=0)
-        tn, fp, fn, tp = confusion_matrix(test_targets, test_preds).ravel()
-        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-        accuracy    = (tp + tn) / len(test_targets)
-
-        print(f"  AUROC:       {test_auc:.4f}")
-        print(f"  Accuracy:    {accuracy:.4f}")
-        print(f"  Precision:   {precision:.4f}")
-        print(f"  Sensitivity: {recall:.4f}  (Recall)")
-        print(f"  Specificity: {specificity:.4f}")
-        print(f"  F1-Score:    {f1:.4f}")
-        print(f"  Confusion Matrix → TP:{tp} | FP:{fp} | TN:{tn} | FN:{fn}")
-
-        mlflow.log_metrics({
-            "test_auc":         test_auc,
-            "test_accuracy":    accuracy,
-            "test_precision":   precision,
-            "test_sensitivity": recall,
-            "test_specificity": specificity,
-            "test_f1":          f1,
-            "best_val_auc":     best_auc,
-            "best_epoch":       best_epoch,
-        })
-
-        # ── Push best model to MLflow Registry ───────────────────────────
-        print("\nSaving Best Model to MLflow Registry...")
-        mlflow.pytorch.log_model(model, artifact_path="ecg_best_model", pickle_module=copy)
-        print("✅ Best model successfully pushed to MLOps Registry.")
-
+        # Final Evaluation
+        model.load_state_dict(torch.load(model_save_path))
+        print("\n--- [ Held-out Test Set Results ] ---")
+        _, test_auc, probs, targets = evaluate(model, test_loader, criterion, device)
+        
+        preds = (probs >= THRESHOLD).astype(int)
+        tn, fp, fn, tp = confusion_matrix(targets, preds).ravel()
+        
+        print(f"Test AUROC: {test_auc:.4f}")
+        print(f"Sensitivity: {tp/(tp+fn):.4f} | Specificity: {tn/(tn+fp):.4f}")
+        
 if __name__ == "__main__":
     main()
