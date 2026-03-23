@@ -10,7 +10,7 @@ Unlike many ECG projects that rely only on flat metadata files, this pipeline or
   <img src="docs/banner_12leads.png" width="100%" alt="ECG Myocardial Infarction Detector Banner" />
 </p>
 <p align="center">
-  <em>Figure 1. 6-lead ECG signal diversity from the PTB-XL database (sampling rate: 500Hz).</em>
+  <em>Figure 1. 12-lead ECG signal diversity from the PTB-XL database (sampling rate: 500Hz).</em>
 </p>
 
 ---
