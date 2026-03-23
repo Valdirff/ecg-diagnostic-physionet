@@ -9,6 +9,9 @@ Unlike many ECG projects that rely only on flat metadata files, this pipeline or
 <p align="center">
   <img src="docs/banner_12leads.png" width="100%" alt="ECG Myocardial Infarction Detector Banner" />
 </p>
+<p align="center">
+  <em>Figure 1. 12-lead ECG signal diversity from the PTB-XL database (sampling rate: 500Hz).</em>
+</p>
 
 ---
 
@@ -34,7 +37,7 @@ The goal of this project is to support **automated screening**, with particular 
   <img src="docs/mi_vs_normal_trace.png" width="85%" alt="Comparison between Normal ECG and Myocardial Infarction ECG" />
 </p>
 <p align="center">
-  <em>Figure 1. Comparison between a normal sinus rhythm and a myocardial infarction ECG trace from PTB-XL.</em>
+  <em>Figure 2. Comparison between a normal sinus rhythm and a myocardial infarction ECG trace from PTB-XL.</em>
 </p>
 
 ---
@@ -99,12 +102,16 @@ The final model was evaluated on the hold-out test set (Fold 10), containing 2,1
 | **Specificity** | 80.35% | Good rejection of non-MI controls |
 | **F1-Score** | 71.13% | Balanced performance under class imbalance |
 
+<p align="center">
+  <table border="0" align="center" cellspacing="0" cellpadding="0">
+    <tr align="center">
+      <td><img src="docs/roc_curve.png" width="450px" style="display:block" /></td>
+      <td><img src="docs/confusion_matrix.png" width="450px" style="display:block" /></td>
+    </tr>
+  </table>
+</p>
 <p align="center"> 
-  <img src="docs/roc_curve.png" width="48%" alt="ROC Curve" /> 
-  <img src="docs/confusion_matrix.png" width="48%" alt="Confusion Matrix" /> 
-</p> 
-<p align="center"> 
-  <em>Figure 2. Left: ROC curve on the hold-out test set. Right: confusion matrix summarizing true positives, false positives, true negatives, and false negatives.</em> 
+  <em>Figure 3. Left: ROC curve on the hold-out test set. Right: confusion matrix summarizing true positives, false positives, true negatives, and false negatives.</em> 
 </p>
 
 ---
