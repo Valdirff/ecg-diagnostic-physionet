@@ -1,4 +1,4 @@
-# 🩺 ECG Myocardial Infarction Detector
+# ECG Myocardial Infarction Detector
 > **SQL-Based ECG Data Engineering + 1D CNN Classification + Experiment Tracking**
 
 This repository presents an end-to-end machine learning pipeline for the automated detection of **Myocardial Infarction (MI)** from **12-lead ECG signals** using the **PTB-XL** dataset.  
